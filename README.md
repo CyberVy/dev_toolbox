@@ -68,8 +68,9 @@ npm run tauri android build
 ## Project Structure
 
 - `src/app/`: Next.js App Router pages and layouts.
-- `src/components/`: Reusable React components.
-- `src/infra/`: Core TypeScript infrastructure, types, and utility libraries.
+- `src/blocks/`: Business-facing React UI blocks composed from base components.
+- `src/components/`: Base reusable React components and UI infrastructure.
+- `src/infra/`: Infrastructure, platform adapters, shared types, and utility libraries.
 - `src/sw/`: Service Worker source code.
 - `src-tauri/`: Rust backend and native configuration.
 - `public/`: Static assets, including icons and the bundled `sw.js`.

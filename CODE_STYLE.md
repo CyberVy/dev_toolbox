@@ -9,8 +9,11 @@ This guide documents the current project structure and code style. It is for dev
     - `page.tsx`: main page (client component).
     - `native_entry/page.tsx`: native/Tauri entry route.
     - `globals.css`: global styles and Tailwind setup.
-- `src/components/`: UI components (mostly client components).
-- `src/infra/`: data, device, player, and YouTube helpers.
+- `src/blocks/`: business-facing React UI blocks composed from base components.
+    - Put app-specific composite UI here, such as wrapper and embedded-tool blocks.
+- `src/components/`: base reusable UI components and UI infrastructure.
+    - Put framework-level or reusable primitives here.
+- `src/infra/`: infrastructure, platform adapters, and shared types.
     - `*.client.ts`: browser-only utilities.
     - `types.ts`: shared types.
 - `src/sw/`: service worker source (build/packaged to `public/sw.js`).
@@ -33,11 +36,19 @@ This guide documents the current project structure and code style. It is for dev
 ## Naming Conventions
 
 - Components: `PascalCase` filenames and exports (e.g. `Player.tsx`, `GlobalSettingButton`).
+- Blocks: `PascalCase` filenames and exports under `src/blocks/`.
 - Hooks: `useSomething` functions in `src/components/hooks.tsx`.
 - Utilities: snake_case function names are common (e.g. `get_playlist_id_from_url`).
 - Variables: snake_case is widely used (`current_video_id`, `history_playlist_resources_ref`).
 - Type imports: use `import type` when importing only types.
 - Path aliases: prefer `@/` for imports under `src/`.
+
+## Layering Rules
+
+- `src/components/` must not depend on `src/blocks/`.
+- `src/blocks/` may depend on `src/components/` and `src/infra/`.
+- `src/app/` is responsible for route entry points and composing blocks.
+- Keep business UI out of `src/components/`; place it in `src/blocks/`.
 
 ## Formatting and Style
 
