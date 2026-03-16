@@ -1,6 +1,6 @@
 "use client"
 
-import { WrappedSite } from "@/components/WrappedSite"
+import { WrappedSite } from "@/blocks/WrappedSite"
 import { AutoSubmitStringInput } from "@/components/StringInputs"
 import { useEffect, useState } from "react"
 
@@ -21,7 +21,7 @@ export default function Page(){
         <div className={`h-[100vh] w-[100vw]`}>
             <div className={`px-4 py-2`}>
                 <AutoSubmitStringInput
-                    default_url={src}
+                    default_value={src}
                     callback={url => {
                         localStorage.setItem("wrapped_url",url)
                         set_src(url)

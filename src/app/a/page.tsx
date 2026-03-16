@@ -16,7 +16,7 @@ export default function Page(){
             </div>
             <div className="py-2 px-6">
                 <AutoSubmitStringInput
-                    default_url=""
+                    default_value=""
                     callback={(url) => {
                         if (url.startsWith("http")) {
                             try {
