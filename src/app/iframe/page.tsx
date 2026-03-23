@@ -12,7 +12,7 @@ export default function Page(){
         const site_url = url.searchParams.get("url") || localStorage.getItem("wrapped_url") || ""
         if (site_url){
             localStorage.setItem("wrapped_url",site_url)
-            history.replaceState(null,"","/wrapper")
+            history.replaceState(null,"","/iframe")
             set_src(site_url)
         }
     }, [])
