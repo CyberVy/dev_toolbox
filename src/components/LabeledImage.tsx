@@ -1,11 +1,15 @@
 "use client"
 
-import { useEffect, useRef, useState, useCallback } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import type { PointerEvent as ReactPointerEvent } from "react"
 import { string_icons } from "@/infra/ui_constants"
 import { generate_cover_image } from "@/infra/data_generation_lib"
-import type { LabeledImageInputs } from "@/infra/types"
+import type { LabeledImageInputs } from "@/components/types"
 import { is_ios_device, vibrate } from "@/infra/device.client"
+import { create_press_gesture } from "@/infra/gestures.client"
 import { useInViewport } from "@/components/hooks"
+import { FullscreenModalContainer } from "@/components/FullscreenModalContainer"
+import { VerticalMenuBar } from "@/components/VerticalMenuBar"
 
 function LabeledImage({
     src,
@@ -25,109 +29,202 @@ function LabeledImage({
     clear_margin,
     protected_padding,
     intersection_root_element_ref,
-    className
+    context_menu,
+    image_props,
+    image_className,
+    className,
+    ...props
 }: LabeledImageInputs) {
-
-    const [is_ios, set_is_ios] = useState(false)
-    const [requested_src,set_requested_src] = useState(`${image_proxy_api || ""}${src}`)
+    const [is_ios,set_is_ios] = useState(false)
     const [is_loaded,set_is_loaded] = useState(false)
-    const [is_error,set_is_error] = useState(false)
     const [show_description,set_show_description] = useState(false)
-    const [generated_cover_image_blob_url, set_generated_cover_image_blob_url] = useState("")
+    const [fallback_blob_url,set_fallback_blob_url] = useState("")
+    const [show_context_menu,set_show_context_menu] = useState(false)
+    const [context_menu_point,set_context_menu_point] = useState([0,0])
+    const [context_menu_render_point,set_context_menu_render_point] = useState([0,0])
     const {element_ref: intersection_div_ref, in_view, root_element_ref: _root_element_ref} = useInViewport<HTMLDivElement,HTMLElement>(clear_margin,protected_padding,0)
-    if (intersection_root_element_ref){
-        _root_element_ref.current  = intersection_root_element_ref.current
-    }
     const [img_size, set_img_size] = useState([0,0])
+    const context_menu_ref = useRef<HTMLElement | null>(null)
+    const requested_src = src ? `${image_proxy_api || ""}${src}` : ""
+    const resolved_src = fallback_blob_url || requested_src || undefined
+    const has_context_menu = Boolean(context_menu?.sections.length)
 
-    const clear_image_blob_url = useCallback(function clear_image_blob_url() {
-        if (generated_cover_image_blob_url_ref.current){
-            URL.revokeObjectURL(generated_cover_image_blob_url_ref.current)
-        }
-        set_generated_cover_image_blob_url("")
-    },[])
+    const close_context_menu = useCallback(() => {
+        set_show_context_menu(false)
+    }, [])
 
-    const generated_cover_image_blob_url_ref = useRef(generated_cover_image_blob_url)
+    const open_context_menu = useCallback((client_x: number, client_y: number) => {
+        if (!has_context_menu) return
+
+        set_context_menu_point([client_x,client_y])
+        set_context_menu_render_point([client_x,client_y])
+        set_show_context_menu(true)
+    }, [has_context_menu])
+
+    const press_gesture = useMemo(() => {
+        return create_press_gesture<ReactPointerEvent<HTMLImageElement>>({
+            enabled: event => event.button === 0,
+            on_success: () => {
+                vibrate()
+            },
+            click: {
+                on_trigger: () => {
+                    onClickImage?.()
+                },
+            },
+            long_press: has_context_menu ? {
+                enabled: event => event.pointerType === "touch",
+                on_trigger: event => {
+                    open_context_menu(event.clientX, event.clientY)
+                },
+                ms: context_menu?.long_press_ms ?? 300,
+            } : undefined,
+        })
+    }, [context_menu?.long_press_ms, has_context_menu, onClickImage, open_context_menu])
+
     useEffect(() => {
-        clear_image_blob_url()
-        generated_cover_image_blob_url_ref.current = generated_cover_image_blob_url
-        set_generated_cover_image_blob_url(generated_cover_image_blob_url)
-    }, [generated_cover_image_blob_url])
-
-
-    useEffect(() => {
-        // if an empty src is an input, a cover will be generated and used directly
-        if (!src){
-            set_is_error(true)
-            generate_cover_image(alt || "",{}).then(url => set_generated_cover_image_blob_url(url))
-        }
-        set_is_ios(is_ios_device)
         return () => {
-            if (generated_cover_image_blob_url_ref.current){
-                URL.revokeObjectURL(generated_cover_image_blob_url_ref.current)
-            }
+            press_gesture.reset_press()
         }
+    }, [press_gesture])
+
+    useEffect(() => {
+        if (!intersection_root_element_ref) return
+
+        _root_element_ref.current = intersection_root_element_ref.current
+    }, [_root_element_ref, intersection_root_element_ref])
+
+    useEffect(() => {
+        set_is_ios(is_ios_device())
     }, [])
 
     useEffect(() => {
-        if (!src) return
+        if (!fallback_blob_url) return
 
-        // if the image is not loaded, or it is loaded with an error,
-        // a new requested src will be set to fetch the image
-        if (!is_loaded || is_error){
-            set_is_error(false)
-            clear_image_blob_url()
-            set_requested_src(`${image_proxy_api || ""}${src}`)
+        return () => {
+            URL.revokeObjectURL(fallback_blob_url)
         }
-    }, [image_proxy_api])
+    }, [fallback_blob_url])
 
     useEffect(() => {
-        if (!src) return
+        let ignore = false
 
-        set_is_error(false)
-        clear_image_blob_url()
-        set_requested_src(`${image_proxy_api || ""}${src}`)
-    }, [src])
+        if (src){
+            set_fallback_blob_url("")
+            return
+        }
 
-    // if in_view is false, the img element will be unmounted.
-    // sync the state here
+        generate_cover_image(alt || "",{}).then(url => {
+            if (ignore){
+                URL.revokeObjectURL(url)
+                return
+            }
+            set_fallback_blob_url(url)
+        })
+
+        return () => {
+            ignore = true
+        }
+    }, [alt, src])
+
     useEffect(() => {
         if (in_view) return
 
         set_is_loaded(false)
     }, [in_view])
 
+    useEffect(() => {
+        if (!show_context_menu) return
+
+        const context_menu_element = context_menu_ref.current
+        if (!context_menu_element) return
+
+        const safe_padding = 12
+        const max_x = Math.max(safe_padding, window.innerWidth - context_menu_element.offsetWidth - safe_padding)
+        const max_y = Math.max(safe_padding, window.innerHeight - context_menu_element.offsetHeight - safe_padding)
+        const next_x = Math.min(Math.max(context_menu_point[0], safe_padding), max_x)
+        const next_y = Math.min(Math.max(context_menu_point[1], safe_padding), max_y)
+
+        if (next_x === context_menu_render_point[0] && next_y === context_menu_render_point[1]) return
+
+        set_context_menu_render_point([next_x,next_y])
+    }, [context_menu_point, context_menu_render_point, show_context_menu])
+
+    useEffect(() => {
+        if (!show_context_menu) return
+
+        const close_on_escape = (event: KeyboardEvent) => {
+            if (event.key !== "Escape") return
+
+            close_context_menu()
+        }
+
+        window.addEventListener("keydown", close_on_escape)
+
+        return () => {
+            window.removeEventListener("keydown", close_on_escape)
+        }
+    }, [close_context_menu, show_context_menu])
+
     return (
-        <div className={`${in_view ? "intersection-in-view" : "intersection-not-in-view"}`}>
+        <div
+            className={`${in_view ? "intersection-in-view" : "intersection-not-in-view"} ${className || ""}`}
+            {...props}
+        >
             {clear_margin != undefined &&
                 <div
                     ref={intersection_div_ref}
                 >
                 </div>}
 
-            <main
+            <div
                 className={`w-full h-full relative`}
+                onTouchEnd={event => {
+                    // Avoid the blue magnified outline shown by mobile WebKit after touch interactions.
+                    event.preventDefault()
+                }}
             >
-                {!in_view && <img style={{visibility:"hidden",width: img_size[0],height:img_size[1]}}/>}
+                {!in_view && <img alt="" style={{visibility:"hidden",width: img_size[0],height:img_size[1]}}/>}
                 {in_view &&
                     <>
                         <img
-                            src={generated_cover_image_blob_url || requested_src || undefined}
-                            className={`${className || ""} w-full h-full object-cover [-webkit-touch-callout:none] ${is_ios ? "[-webkit-user-drag:none]" : ""}`}
-                            onClick={() => {
-                                vibrate()
-                                onClickImage?.()
-                            }}
+                            {...image_props}
+                            alt={alt || ""}
+                            src={resolved_src}
+                            className={`${image_className || ""} w-full h-full object-cover [-webkit-touch-callout:none] ${is_ios ? "[-webkit-user-drag:none]" : ""}`}
                             onLoad={event => {
                                 set_is_loaded(true)
                                 set_img_size([event.currentTarget.width,event.currentTarget.height])
+                                image_props?.onLoad?.(event)
                             }}
                             onError={async event => {
-                                set_is_error(true)
-                                if (alt && in_view){
-                                    set_generated_cover_image_blob_url(await generate_cover_image(alt, {}))
+                                image_props?.onError?.(event)
+                                if (src && alt && in_view && !fallback_blob_url){
+                                    await generate_cover_image(alt,{}).then(set_fallback_blob_url)
                                 }
                                 set_is_loaded(true)
+                            }}
+
+                            onContextMenu={event => {
+                                if (!has_context_menu) return
+
+                                event.preventDefault()
+                                open_context_menu(event.clientX, event.clientY)
+                            }}
+                            onPointerDown={event => {
+                                press_gesture.on_pointer_down(event)
+                            }}
+                            onPointerMove={event => {
+                                press_gesture.on_pointer_move(event)
+                            }}
+                            onPointerUp={event => {
+                                press_gesture.on_pointer_up(event)
+                            }}
+                            onPointerCancel={event => {
+                                press_gesture.on_pointer_cancel(event)
+                            }}
+                            onPointerLeave={event => {
+                                press_gesture.on_pointer_leave(event)
                             }}
                         />
 
@@ -144,13 +241,13 @@ function LabeledImage({
                         </div>}
 
                         {top_information && <div
-                            className={`absolute ${label_left ? "top-6" : "top-1"} left-1 px-1 text-pink-50 text-xs rounded-md ${top_information_background_color || ""} ${is_loaded ? "block" : "hidden"} overflow-hidden overscroll-none max-h-[48px] max-w-1/2`}
+                            className={`absolute ${label_left ? "top-6" : "top-1"} left-1 px-1 text-pink-50 text-xs rounded-md ${top_information_background_color || ""} ${is_loaded ? "block" : "hidden"} overflow-hidden max-h-[48px] max-w-1/2`}
                         >
                             {top_information}
                         </div>}
 
                         {bottom_information && <div
-                            className={`absolute ${onClickDelete ? "bottom-6" : "bottom-1"} left-1 px-1 text-pink-50 text-xs rounded-md ${bottom_information_background_color || ""} ${is_loaded ? "block" : "hidden"} overflow-hidden overscroll-none max-h-[16px] max-w-4/5`}
+                            className={`absolute ${onClickDelete ? "bottom-6" : "bottom-1"} left-1 px-1 text-pink-50 text-xs rounded-md ${bottom_information_background_color || ""} ${is_loaded ? "block" : "hidden"} overflow-hidden  max-h-[16px] max-w-4/5`}
                         >
                             {bottom_information}
                         </div>}
@@ -162,6 +259,9 @@ function LabeledImage({
                                     onClick={() => {
                                         vibrate()
                                         set_show_description(!show_description)
+                                    }}
+                                    onTouchEnd={event => {
+                                        event.stopPropagation()
                                     }}
                                     onMouseEnter={() => {
                                         set_show_description(true)
@@ -187,11 +287,57 @@ function LabeledImage({
                                 vibrate()
                                 onClickDelete()
                             }}
+                            onTouchEnd={event => {
+                                event.stopPropagation()
+                            }}
                         >
                             {string_icons.del}
                         </button>}
                     </>}
-            </main>
+            </div>
+            {has_context_menu && show_context_menu &&
+                <FullscreenModalContainer
+                    className={"z-40 overflow-hidden"}
+                    onContextMenu={event => {
+                        event.preventDefault()
+                    }}
+                    onClick={() => {
+                        close_context_menu()
+                    }}
+                    onTouchEnd={event => {
+                        // Avoid the blue magnified outline shown by mobile WebKit after touch interactions.
+                        event.preventDefault()
+                        event.currentTarget.click()
+                    }}
+                >
+                    <VerticalMenuBar
+                        className={"fixed w-[min(320px,calc(100vw-24px))]"}
+                        style={{left: context_menu_render_point[0], top: context_menu_render_point[1]}}
+                        onContextMenu={event => {
+                            event.preventDefault()
+                            event.stopPropagation()
+                        }}
+                        onClick={event => {
+                            event.stopPropagation()
+                        }}
+                        onTouchEnd={event => {
+                            event.stopPropagation()
+                        }}
+                        ref={context_menu_ref}
+                        sections={context_menu?.sections || []}
+                        header={context_menu?.header}
+                        footer={context_menu?.footer}
+                        compact={context_menu?.compact}
+                        accent_color={context_menu?.accent_color}
+                        enable_vibration={context_menu?.enable_vibration}
+                        onSelect={(key, item) => {
+                            context_menu?.onSelect?.(key, item)
+                            if (context_menu?.close_after_select === false) return
+
+                            close_context_menu()
+                        }}
+                    />
+                </FullscreenModalContainer>}
         </div>
     )
 }
