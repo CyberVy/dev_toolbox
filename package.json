@@ -19,7 +19,8 @@
     "@tauri-apps/api": "^2.10.1",
     "next": "16.2.0",
     "react": "19.2.1",
-    "react-dom": "19.2.1"
+    "react-dom": "19.2.1",
+    "tldraw": "^4.5.8"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
